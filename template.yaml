@@ -1,0 +1,88 @@
+AWSTemplateFormatVersion: 2010-09-09
+Resources:
+  LambdaExecutionRole:
+   Type: AWS::IAM::Role
+   Properties: 
+     AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+     Description: "allow lambda to communicate to s3 and ssm parameter store"
+     Path: "/"
+     Policies:
+      - PolicyName: cloudwatch
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Sid: Stmt1652132065902
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+            Effect: Allow
+            Resource: arn:aws:logs:*:*:*
+      - PolicyName: s3
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Sid: Stmt1652132065903
+            Action:
+            - s3:putObject
+            Effect: Allow
+            Resource: arn:aws:s3:::aws-demo-dxc-1/*
+      - PolicyName: ssm
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Sid: Stmt1652132065904
+            Action:
+            - ssm:GetParameter
+            Effect: Allow
+            Resource: 'arn:aws:ssm:ap-south-1:434129641371:parameter/UserName'
+
+  Lambda:
+    Type: AWS::Lambda::Function
+    Properties: 
+      Code:
+        ZipFile: |
+          #required cfnresponse module to capture o/p#
+          import json
+          import boto3
+          client = boto3.client('ssm')
+          s3 = boto3.resource('s3')
+
+          import os         
+
+          def excercise-lambda(event,context):
+            response = client.get_parameter(
+            Name='UserName',
+            WithDecryption=True)
+            Name = str(response['Parameter']['Name'])
+            Value = str(response['Parameter']['Value'])
+            my_dict = {Name : Value}
+            
+            with open('/tmp/paramter.txt', 'w') as f:
+              json.dump(my_dict,  f)
+              
+            s3.meta.client.upload_file('/tmp/paramter.txt', 'aws-demo-dxc-1', 'paramter.txt')
+
+      Description: "reads parameter from ssm and puts it in a file and uploads to s3"
+      FunctionName: "Parser_Func"
+      Handler: index.excercise-lambda
+      MemorySize: 128
+      Runtime: python3.9
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 20
+
+To trigger the function.
+#Primerinvoke:
+  #Type: AWS::CloudFormation::CustomResource
+  #DependsOn: Lambda
+  #Version: "1.0"
+  #Properties:
+    #ServiceToken: !GetAtt Lambda.Arn
